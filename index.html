@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Classroom Noise Monitor</title>
+  <style>
+    body {
+      text-align: center;
+      font-family: Arial, sans-serif;
+      margin-top: 30px;
+      transition: background-color 0.5s;
+    }
+    .light-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .light {
+      width: 100px;
+      height: 100px;
+      margin: 10px;
+      border-radius: 50%;
+      background-color: gray;
+      transition: background-color 0.3s;
+    }
+    #red.light.on { background-color: red; }
+    #yellow.light.on { background-color: gold; }
+    #green.light.on { background-color: green; }
+
+    .status {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+    .emoji {
+      font-size: 48px;
+      margin-top: 10px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Classroom Noise Monitor</h1>
+  <div class="light-container">
+    <div id="red" class="light"></div>
+    <div id="yellow" class="light"></div>
+    <div id="green" class="light"></div>
+  </div>
+  <div class="status">
+    <p id="status">Initializing...</p>
+    <p>Quiet Time (Green + Yellow): <span id="quietTime">0</span> s</p>
+    <p>Loud Time (Red): <span id="redTime">0</span> s</p>
+    <div class="emoji" id="emoji">😐</div>
+    <button onclick="resetCounters()">Reset</button>
+    <div>
+      <p><strong>Sensitivity Controls:</strong></p>
+      <p>Yellow Threshold: <span id="yellowThresholdDisplay">10</span></p>
+      <button onclick="adjustYellowThreshold(-1)">⬇️ Yellow Threshold</button>
+      <button onclick="adjustYellowThreshold(1)">⬆️ Yellow Threshold</button>
+      <p>Red Threshold: <span id="redThresholdDisplay">30</span></p>
+      <button onclick="adjustRedThreshold(-1)">⬇️ Red Threshold</button>
+      <button onclick="adjustRedThreshold(1)">⬆️ Red Threshold</button>
+    </div>
+  </div>
+
+  <script>
+    const redLight = document.getElementById('red');
+    const yellowLight = document.getElementById('yellow');
+    const greenLight = document.getElementById('green');
+    const statusText = document.getElementById('status');
+    const quietTimeEl = document.getElementById('quietTime');
+    const redTimeEl = document.getElementById('redTime');
+    const emoji = document.getElementById('emoji');
+    const yellowThresholdDisplay = document.getElementById('yellowThresholdDisplay');
+    const redThresholdDisplay = document.getElementById('redThresholdDisplay');
+
+    let quietSeconds = 0;
+    let redSeconds = 0;
+    let currentLevel = 'none';
+    let lastLevel = 'none';
+    let levelHoldTime = 0;
+
+    let yellowThreshold = 10;
+    let redThreshold = 30;
+
+    function setLight(color) {
+      redLight.classList.remove('on');
+      yellowLight.classList.remove('on');
+      greenLight.classList.remove('on');
+
+      if (color === 'green') {
+        greenLight.classList.add('on');
+        document.body.style.backgroundColor = '#d0f0c0';
+      } else if (color === 'yellow') {
+        yellowLight.classList.add('on');
+        document.body.style.backgroundColor = '#fff8b0';
+      } else if (color === 'red') {
+        redLight.classList.add('on');
+        document.body.style.backgroundColor = '#ffd0d0';
+      } else {
+        document.body.style.backgroundColor = 'white';
+      }
+    }
+
+    function resetCounters() {
+      quietSeconds = 0;
+      redSeconds = 0;
+      quietTimeEl.textContent = '0';
+      redTimeEl.textContent = '0';
+      emoji.textContent = '😐';
+    }
+
+    function adjustYellowThreshold(change) {
+      yellowThreshold += change;
+      yellowThreshold = Math.max(1, yellowThreshold);
+      redThreshold = Math.max(yellowThreshold + 1, redThreshold);
+      yellowThresholdDisplay.textContent = yellowThreshold;
+      redThresholdDisplay.textContent = redThreshold;
+    }
+
+    function adjustRedThreshold(change) {
+      redThreshold += change;
+      redThreshold = Math.max(yellowThreshold + 1, redThreshold);
+      redThresholdDisplay.textContent = redThreshold;
+    }
+
+    async function startMic() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        source.connect(analyser);
+
+        function getAverageVolume() {
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          return sum / dataArray.length;
+        }
+
+        function update() {
+          const volume = getAverageVolume();
+          statusText.textContent = `Volume Level: ${volume.toFixed(2)}`;
+
+          let targetLevel = 'green';
+          if (volume >= redThreshold) targetLevel = 'red';
+          else if (volume >= yellowThreshold) targetLevel = 'yellow';
+
+          if (targetLevel === currentLevel) {
+            levelHoldTime = 0;
+          } else {
+            if (targetLevel === lastLevel) {
+              levelHoldTime += 100;
+              if (levelHoldTime >= 1000) {
+                currentLevel = targetLevel;
+                setLight(currentLevel);
+              }
+            } else {
+              lastLevel = targetLevel;
+              levelHoldTime = 0;
+            }
+          }
+
+          if (currentLevel === 'green' || currentLevel === 'yellow') {
+            quietSeconds++;
+            quietTimeEl.textContent = quietSeconds;
+          } else if (currentLevel === 'red') {
+            redSeconds++;
+            redTimeEl.textContent = redSeconds;
+          }
+
+          if (quietSeconds > redSeconds) {
+            emoji.textContent = '😊';
+          } else if (redSeconds > quietSeconds) {
+            emoji.textContent = '😟';
+          } else {
+            emoji.textContent = '😐';
+          }
+
+          setTimeout(update, 100);
+        }
+
+        update();
+      } catch (err) {
+        console.error('Microphone access error:', err);
+        statusText.textContent = 'Microphone access denied or error.';
+      }
+    }
+
+    startMic();
+  </script>
+</body>
+</html>
